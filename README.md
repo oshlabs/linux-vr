@@ -127,7 +127,7 @@ makepkg
 
 install
 ```
-libsurvive-git-2231.037189e-1-x86_64.pkg.tar.zst
+pacman -U libsurvive-git-2231.037189e-1-x86_64.pkg.tar.zst
 ```
 
 
