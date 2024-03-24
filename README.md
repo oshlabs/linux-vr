@@ -108,8 +108,27 @@ Install the packages:
 pacman -U linux-6.8.1.arch1-1-x86_64.pkg.tar.zst linux-headers-6.8.1.arch1-1-x86_64.pkg.tar.zst
 ```
 
+---
 
+Libsurvive
 
+Had to remake the libsurvive-git package due to some dependency (forgot to write down which, something was newer than what pkg in aur was built with)
+
+git clone
+```
+git clone https://aur.archlinux.org/libsurvive-git.git
+cd libsurvive-git
+```
+
+build pkg
+```
+makepkg
+```
+
+install
+```
+libsurvive-git-2231.037189e-1-x86_64.pkg.tar.zst
+```
 
 
 
