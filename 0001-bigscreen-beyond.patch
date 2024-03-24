@@ -1,0 +1,156 @@
+diff --unified --recursive --text linux-6.8.1/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c linux-6.8.1-patched/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c
+--- linux-6.8.1/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c	2024-03-15 19:19:29.000000000 +0100
++++ linux-6.8.1-patched/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c	2024-03-24 01:01:22.911897371 +0100
+@@ -122,6 +122,8 @@
+ 
+ 	edid_caps->edid_hdmi = connector->display_info.is_hdmi;
+ 
++	edid_caps->dsc_fixed_bits_per_pixel_x16 = connector->display_info.dp_dsc_bpp;
++
+ 	apply_edid_quirks(edid_buf, edid_caps);
+ 
+ 	sad_count = drm_edid_to_sad((struct edid *) edid->raw_edid, &sads);
+diff --unified --recursive --text linux-6.8.1/drivers/gpu/drm/amd/display/dc/core/dc_stream.c linux-6.8.1-patched/drivers/gpu/drm/amd/display/dc/core/dc_stream.c
+--- linux-6.8.1/drivers/gpu/drm/amd/display/dc/core/dc_stream.c	2024-03-15 19:19:29.000000000 +0100
++++ linux-6.8.1-patched/drivers/gpu/drm/amd/display/dc/core/dc_stream.c	2024-03-24 01:01:22.911897371 +0100
+@@ -105,6 +105,9 @@
+ 	/* EDID CAP translation for HDMI 2.0 */
+ 	stream->timing.flags.LTE_340MCSC_SCRAMBLE = dc_sink_data->edid_caps.lte_340mcsc_scramble;
+ 
++	stream->timing.dsc_fixed_bits_per_pixel_x16 =
++		dc_sink_data->edid_caps.dsc_fixed_bits_per_pixel_x16;
++
+ 	memset(&stream->timing.dsc_cfg, 0, sizeof(stream->timing.dsc_cfg));
+ 	stream->timing.dsc_cfg.num_slices_h = 0;
+ 	stream->timing.dsc_cfg.num_slices_v = 0;
+diff --unified --recursive --text linux-6.8.1/drivers/gpu/drm/amd/display/dc/dc_types.h linux-6.8.1-patched/drivers/gpu/drm/amd/display/dc/dc_types.h
+--- linux-6.8.1/drivers/gpu/drm/amd/display/dc/dc_types.h	2024-03-15 19:19:29.000000000 +0100
++++ linux-6.8.1-patched/drivers/gpu/drm/amd/display/dc/dc_types.h	2024-03-24 01:01:22.911897371 +0100
+@@ -207,6 +207,9 @@
+ 	bool edid_hdmi;
+ 	bool hdr_supported;
+ 
++	/* DisplayPort caps */
++	uint32_t dsc_fixed_bits_per_pixel_x16;
++
+ 	struct dc_panel_patch panel_patch;
+ };
+ 
+diff --unified --recursive --text linux-6.8.1/drivers/gpu/drm/drm_edid.c linux-6.8.1-patched/drivers/gpu/drm/drm_edid.c
+--- linux-6.8.1/drivers/gpu/drm/drm_edid.c	2024-03-15 19:19:29.000000000 +0100
++++ linux-6.8.1-patched/drivers/gpu/drm/drm_edid.c	2024-03-24 01:01:22.915230541 +0100
+@@ -213,6 +213,11 @@
+ 	/* HTC Vive and Vive Pro VR Headsets */
+ 	EDID_QUIRK('H', 'V', 'R', 0xaa01, EDID_QUIRK_NON_DESKTOP),
+ 	EDID_QUIRK('H', 'V', 'R', 0xaa02, EDID_QUIRK_NON_DESKTOP),
++	EDID_QUIRK('H', 'V', 'R', 0xaa03, EDID_QUIRK_NON_DESKTOP),
++	EDID_QUIRK('H', 'V', 'R', 0xaa04, EDID_QUIRK_NON_DESKTOP),
++
++	/* Bigscreen Beyond Headset */
++	EDID_QUIRK('B', 'I', 'G', 0x1234, EDID_QUIRK_NON_DESKTOP),
+ 
+ 	/* Oculus Rift DK1, DK2, CV1 and Rift S VR Headsets */
+ 	EDID_QUIRK('O', 'V', 'R', 0x0001, EDID_QUIRK_NON_DESKTOP),
+@@ -6410,7 +6415,7 @@
+ 	if (oui(vesa->oui[0], vesa->oui[1], vesa->oui[2]) != VESA_IEEE_OUI)
+ 		return;
+ 
+-	if (sizeof(*vesa) != sizeof(*block) + block->num_bytes) {
++	if (block->num_bytes < 5) {
+ 		drm_dbg_kms(connector->dev,
+ 			    "[CONNECTOR:%d:%s] Unexpected VESA vendor block size\n",
+ 			    connector->base.id, connector->name);
+@@ -6433,24 +6438,36 @@
+ 		break;
+ 	}
+ 
+-	if (!info->mso_stream_count) {
+-		info->mso_pixel_overlap = 0;
+-		return;
+-	}
++	info->mso_pixel_overlap = 0;
+ 
+-	info->mso_pixel_overlap = FIELD_GET(DISPLAYID_VESA_MSO_OVERLAP, vesa->mso);
+-	if (info->mso_pixel_overlap > 8) {
++	if (info->mso_stream_count) {
++		info->mso_pixel_overlap = FIELD_GET(DISPLAYID_VESA_MSO_OVERLAP, vesa->mso);
++
++		if (info->mso_pixel_overlap > 8) {
++			drm_dbg_kms(connector->dev,
++					"[CONNECTOR:%d:%s] Reserved MSO pixel overlap value %u\n",
++					connector->base.id, connector->name,
++					info->mso_pixel_overlap);
++			info->mso_pixel_overlap = 8;
++		}
+ 		drm_dbg_kms(connector->dev,
+-			    "[CONNECTOR:%d:%s] Reserved MSO pixel overlap value %u\n",
+-			    connector->base.id, connector->name,
+-			    info->mso_pixel_overlap);
+-		info->mso_pixel_overlap = 8;
++				"[CONNECTOR:%d:%s] MSO stream count %u, pixel overlap %u\n",
++				connector->base.id, connector->name,
++				info->mso_stream_count, info->mso_pixel_overlap);
++	}
++
++	if (block->num_bytes < 7) {
++		/* DSC bpp is optional */
++		return;
+ 	}
+ 
++	info->dp_dsc_bpp = FIELD_GET(DISPLAYID_VESA_DSC_BPP_INT, vesa->dsc_bpp_int) * 16 +
++		FIELD_GET(DISPLAYID_VESA_DSC_BPP_FRACT, vesa->dsc_bpp_fract);
++
+ 	drm_dbg_kms(connector->dev,
+-		    "[CONNECTOR:%d:%s] MSO stream count %u, pixel overlap %u\n",
+-		    connector->base.id, connector->name,
+-		    info->mso_stream_count, info->mso_pixel_overlap);
++		"[CONNECTOR:%d:%s] DSC bits per pixel %u\n",
++		connector->base.id, connector->name,
++		info->dp_dsc_bpp);
+ }
+ 
+ static void drm_update_mso(struct drm_connector *connector,
+@@ -6498,6 +6515,7 @@
+ 	info->mso_stream_count = 0;
+ 	info->mso_pixel_overlap = 0;
+ 	info->max_dsc_bpp = 0;
++	info->dp_dsc_bpp = 0;
+ 
+ 	kfree(info->vics);
+ 	info->vics = NULL;
+diff --unified --recursive --text linux-6.8.1/include/drm/drm_connector.h linux-6.8.1-patched/include/drm/drm_connector.h
+--- linux-6.8.1/include/drm/drm_connector.h	2024-03-15 19:19:29.000000000 +0100
++++ linux-6.8.1-patched/include/drm/drm_connector.h	2024-03-24 01:01:22.921896880 +0100
+@@ -804,6 +804,12 @@
+ 	u32 max_dsc_bpp;
+ 
+ 	/**
++	 * @dp_dsc_bpp: DP Display-Stream-Compression (DSC) timing's target
++	 * DST bits per pixel in 6.4 fixed point format. 0 means undefined
++	 */
++	u16 dp_dsc_bpp;
++
++	/**
+ 	 * @vics: Array of vics_len VICs. Internal to EDID parsing.
+ 	 */
+ 	u8 *vics;
+diff --unified --recursive --text linux-6.8.1/include/drm/drm_displayid.h linux-6.8.1-patched/include/drm/drm_displayid.h
+--- linux-6.8.1/include/drm/drm_displayid.h	2024-03-15 19:19:29.000000000 +0100
++++ linux-6.8.1-patched/include/drm/drm_displayid.h	2024-03-24 01:01:22.921896880 +0100
+@@ -131,12 +131,16 @@
+ 
+ #define DISPLAYID_VESA_MSO_OVERLAP	GENMASK(3, 0)
+ #define DISPLAYID_VESA_MSO_MODE		GENMASK(6, 5)
++#define DISPLAYID_VESA_DSC_BPP_INT	GENMASK(5, 0)
++#define DISPLAYID_VESA_DSC_BPP_FRACT	GENMASK(3, 0)
+ 
+ struct displayid_vesa_vendor_specific_block {
+ 	struct displayid_block base;
+ 	u8 oui[3];
+ 	u8 data_structure_type;
+ 	u8 mso;
++	u8 dsc_bpp_int;
++	u8 dsc_bpp_fract;
+ } __packed;
+ 
+ /*
