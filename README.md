@@ -86,6 +86,9 @@ Then manually apply the patches from below links onto the new src/linux-6.8.1-pa
 * https://github.com/CertainLach/VivePro2-Linux-Driver/blob/master/kernel-patches/0001-drm-edid-Add-Vive-Cosmos-Vive-Pro-2-to-non-desktop-l.patch
 * https://github.com/CertainLach/VivePro2-Linux-Driver/blob/master/kernel-patches/0003-drm-amd-use-fixed-dsc-bits-per-pixel-from-edid.patch
 
+I also put this EDID_QUIRK for bigscreen in the patch:
+* https://github.com/ValveSoftware/SteamVR-for-Linux/issues/610#issuecomment-1970253471
+
 Create a unified diff patch:
 ```
 diff --unified --recursive --text linux-6.8.1 linux-6.8.1-patched/ > 0001-bigscreen-beyond.patch
